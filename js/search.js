@@ -25,11 +25,15 @@ export function initSearch() {
       return;
     }
     const today = startOfDay(new Date());
+    // 숨긴 카테고리의 이벤트는 결과에서 제외 (클릭해도 어떤 뷰에도 안 보이므로)
+    const visibleCats = new Set(state.categories.filter(c => c.visible !== false).map(c => c.id));
     const matches = state.events
       .filter(ev =>
-        (ev.title || '').toLowerCase().includes(q) ||
-        (ev.location || '').toLowerCase().includes(q) ||
-        (ev.notes || '').toLowerCase().includes(q))
+        visibleCats.has(ev.categoryId) &&
+        !isNaN(evStart(ev)) &&
+        ((ev.title || '').toLowerCase().includes(q) ||
+         (ev.location || '').toLowerCase().includes(q) ||
+         (ev.notes || '').toLowerCase().includes(q)))
       .slice(0, 30)
       .map(ev => ({ ev, occ: nextOccurrence(ev, today) }))
       .map(({ ev, occ }) => ({

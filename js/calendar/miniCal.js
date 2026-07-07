@@ -42,11 +42,14 @@ export function renderMiniCal(container) {
   const visibleCats = new Set(state.categories.filter(c => c.visible !== false).map(c => c.id));
   const occs = occurrencesInRange(state.events, gridStart, gridEnd, { visibleCats });
   const dotDays = new Set();
+  const gridLast = addDays(gridStart, 41);
   for (const o of occs) {
-    const de = displayEndDay(o.occEnd);
-    for (let dd = startOfDay(o.occStart); dd <= de && dotDays.size < 400; dd = addDays(dd, 1)) {
-      dotDays.add(toDateStr(dd));
-    }
+    // 그리드 범위로 잘라서 순회 (아주 긴 이벤트가 있어도 42일 이내로 제한)
+    let dd = startOfDay(o.occStart);
+    if (dd < gridStart) dd = gridStart;
+    let de = displayEndDay(o.occEnd);
+    if (de > gridLast) de = gridLast;
+    for (; dd <= de; dd = addDays(dd, 1)) dotDays.add(toDateStr(dd));
   }
 
   const today = new Date();

@@ -7,7 +7,7 @@ import { t, weekdayName } from './i18n.js';
 import { withUndo } from './undo.js';
 import { showToast } from './toast.js';
 import { CATEGORY_COLORS } from './palette.js';
-import { deleteOccurrence } from './calendar/eventOps.js';
+import { deleteOccurrence, shiftExdates } from './calendar/eventOps.js';
 import {
   toDateStr, toDateTimeStr, parseLocal, addDays, diffDays, startOfDay,
   evStart, evEnd, pad2, HOUR,
@@ -96,18 +96,21 @@ export function openEventEditor({ occ = null, defaults = null } = {}) {
       const hide = allDayIn.checked;
       sTime.style.display = hide ? 'none' : '';
       eTime.style.display = hide ? 'none' : '';
+      // 종일 이벤트에는 '15분 전' 알림이 의미 없으므로 비활성화
+      rem15.disabled = hide;
+      l2.classList.toggle('disabled', hide);
     };
     allDayIn.addEventListener('change', syncTimeVisibility);
-    syncTimeVisibility();
 
     // 시작이 종료를 넘으면 종료를 따라 이동 (지속시간 유지)
     let lastDur = initEnd - initStart;
+    const todayStr = () => toDateStr(new Date());
     const readStart = () => allDayIn.checked
-      ? parseLocal(sDate.value || toDateStr(new Date()))
-      : parseLocal(`${sDate.value}T${sTime.value || '09:00'}`);
+      ? parseLocal(sDate.value || todayStr())
+      : parseLocal(`${sDate.value || todayStr()}T${sTime.value || '09:00'}`);
     const readEnd = () => allDayIn.checked
-      ? parseLocal(eDate.value || sDate.value)
-      : parseLocal(`${eDate.value || sDate.value}T${eTime.value || sTime.value || '10:00'}`);
+      ? parseLocal(eDate.value || sDate.value || todayStr())
+      : parseLocal(`${eDate.value || sDate.value || todayStr()}T${eTime.value || sTime.value || '10:00'}`);
     const onStartChange = () => {
       const s = readStart();
       const e = new Date(s.getTime() + Math.max(0, lastDur));
@@ -246,6 +249,7 @@ export function openEventEditor({ occ = null, defaults = null } = {}) {
     const l1 = el('label', 'check-row'); l1.append(rem1d, el('span', null, t('event.rem1d')));
     const l2 = el('label', 'check-row'); l2.append(rem15, el('span', null, t('event.rem15m')));
     remRow.append(l1, l2);
+    syncTimeVisibility(); // rem15까지 만들어진 뒤 초기 상태 반영
 
     // D-Day
     const ddayIn = el('input'); ddayIn.type = 'checkbox'; ddayIn.checked = !!ev?.showDday;
@@ -285,6 +289,8 @@ export function openEventEditor({ occ = null, defaults = null } = {}) {
       const allDay = allDayIn.checked;
       let s = readStart();
       let e = readEnd();
+      if (isNaN(s)) s = parseLocal(`${todayStr()}T09:00`); // 입력 파싱 실패 방어
+      if (isNaN(e)) e = new Date(s.getTime() + HOUR);
       if (allDay) {
         s = startOfDay(s);
         e = startOfDay(e);
@@ -302,11 +308,16 @@ export function openEventEditor({ occ = null, defaults = null } = {}) {
         }
         if (fq === 'monthly') recurrence.monthlyMode = mmSel.value;
         const et = endSel.value;
-        recurrence.end = et === 'until'
-          ? { type: 'until', until: untilIn.value || toDateStr(addDays(s, 90)) }
-          : et === 'count'
-            ? { type: 'count', count: Math.max(1, parseInt(countIn.value, 10) || 1) }
-            : { type: 'never' };
+        if (et === 'until') {
+          // until이 시작일보다 앞이면 발생이 0개가 되어 UI에서 열 수 없는 유령 이벤트가 됨 → 시작일로 보정
+          let until = untilIn.value || toDateStr(addDays(s, 90));
+          if (until < toDateStr(s)) until = toDateStr(s);
+          recurrence.end = { type: 'until', until };
+        } else if (et === 'count') {
+          recurrence.end = { type: 'count', count: Math.max(1, parseInt(countIn.value, 10) || 1) };
+        } else {
+          recurrence.end = { type: 'never' };
+        }
       }
       const reminders = [];
       if (rem1d.checked) reminders.push(DAY_MS);
@@ -346,11 +357,40 @@ export function openEventEditor({ occ = null, defaults = null } = {}) {
         return;
       }
 
-      // 반복 이벤트 수정
+      // 반복 이벤트 수정 — '전체' 적용: 편집한 발생과 원래 발생의 날짜 차이만큼
+      // 시리즈 시작을 이동하고, 예외일도 같이 이동해 보존
+      const applyAllScope = () => {
+        const seriesStart = evStart(ev);
+        const deltaDays = diffDays(startOfDay(occ.occStart), startOfDay(_startDate));
+        const shifted = addDays(seriesStart, deltaDays);
+        const ns = fields.allDay
+          ? startOfDay(shifted)
+          : new Date(shifted.getFullYear(), shifted.getMonth(), shifted.getDate(),
+              _startDate.getHours(), _startDate.getMinutes());
+        let recurrence = fields.recurrence;
+        // 요일 토글은 그대로 두고 날짜만 옮긴 경우, 매주+단일 요일 반복이면 요일도 함께 이동
+        if (recurrence?.freq === 'weekly' && deltaDays !== 0) {
+          const bw = recurrence.byWeekday || [];
+          if (bw.length === 1 && bw[0] === occ.occStart.getDay() && bw[0] !== ns.getDay()) {
+            recurrence = { ...recurrence, byWeekday: [ns.getDay()] };
+          }
+        }
+        const range = fields.allDay
+          ? {
+              start: toDateStr(ns),
+              end: toDateStr(addDays(ns, Math.max(0, Math.round(_durMs / 86400000) - 1))),
+            }
+          : { start: toDateTimeStr(ns), end: toDateTimeStr(new Date(ns.getTime() + _durMs)) };
+        withUndo(t('toast.saved'), () => updateEvent(ev.id, {
+          ...fields, ...range, recurrence,
+          exdates: shiftExdates(ev.exdates, deltaDays),
+        }));
+      };
+
       const ruleChanged = normRule(ev.recurrence) !== normRule(fields.recurrence);
       if (ruleChanged) {
-        // 규칙이 바뀌면 전체 시리즈를 편집값 기준으로 재구성
-        withUndo(t('toast.saved'), () => updateEvent(ev.id, { ...fields, exdates: [] }));
+        // 규칙 변경은 '이 일정만'이 성립하지 않으므로 시리즈 전체에 적용 (기준일·예외일 보존)
+        applyAllScope();
         close();
         return;
       }
@@ -369,27 +409,14 @@ export function openEventEditor({ occ = null, defaults = null } = {}) {
           addEvent({ ...fields, recurrence: null, showDday: false });
         });
       } else {
-        // 전체: 편집한 발생과 원래 발생의 날짜 차이만큼 시리즈 시작을 이동
-        const seriesStart = evStart(ev);
-        const deltaDays = diffDays(startOfDay(occ.occStart), startOfDay(_startDate));
-        const shifted = addDays(seriesStart, deltaDays);
-        const ns = fields.allDay
-          ? startOfDay(shifted)
-          : new Date(shifted.getFullYear(), shifted.getMonth(), shifted.getDate(),
-              _startDate.getHours(), _startDate.getMinutes());
-        const range = fields.allDay
-          ? {
-              start: toDateStr(ns),
-              end: toDateStr(addDays(ns, Math.max(0, Math.round(_durMs / 86400000) - 1))),
-            }
-          : { start: toDateTimeStr(ns), end: toDateTimeStr(new Date(ns.getTime() + _durMs)) };
-        withUndo(t('toast.saved'), () => updateEvent(ev.id, { ...fields, ...range }));
+        applyAllScope();
       }
       close();
     };
 
     saveBtn.addEventListener('click', save);
     titleIn.addEventListener('keydown', e => {
+      if (e.isComposing || e.keyCode === 229) return; // IME 조합 확정 Enter로 저장되는 것 방지
       if (e.key === 'Enter') { e.preventDefault(); save(); }
     });
 

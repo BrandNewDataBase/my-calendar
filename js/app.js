@@ -1,5 +1,6 @@
 // 앱 부트스트랩 + 렌더 오케스트레이션
-import { state, initStore, persist, uid } from './store.js';
+import { state, initStore, persist, uid, reloadKey, reloadFired } from './store.js';
+import { showToast } from './toast.js';
 import { ui, bus } from './bus.js';
 import { t, getLang, setLang, LANGS, LANG_NAMES } from './i18n.js';
 import { fmtMonthTitle, fmtMediumDate, fmtFullDate } from './i18n.js';
@@ -221,8 +222,14 @@ function bindStaticHandlers() {
     } else if (k === 'ArrowRight' && ui.tab === 'calendar') {
       navigate(1);
     } else if (k === '/') {
-      e.preventDefault();
-      $('#search-input').focus();
+      // 현재 탭에서 실제로 보이는 검색창에 포커스 (메모 탭에서는 메모 검색)
+      const target = ui.tab === 'memo'
+        ? document.querySelector('.memo-search')
+        : $('#search-input');
+      if (target && target.offsetParent !== null) {
+        e.preventDefault();
+        target.focus();
+      }
     } else if (k === 'Escape' && ui.selectedDate) {
       closeDayPanel();
     }
@@ -251,6 +258,27 @@ bus.on('data-changed', renderAll);
 bus.on('theme-changed', () => {
   const btn = $('#theme-toggle');
   if (btn) btn.textContent = currentTheme() === 'dark' ? '☀️' : '🌙';
+});
+
+// 저장 실패(용량 초과 등)를 사용자에게 알림 — 연속 실패는 5초에 한 번만
+let lastStorageErrorAt = 0;
+bus.on('storage-error', () => {
+  const now = Date.now();
+  if (now - lastStorageErrorAt < 5000) return;
+  lastStorageErrorAt = now;
+  showToast('⚠️ ' + t('toast.storageError'), { duration: 8000 });
+});
+
+// 다른 탭에서 변경한 데이터를 이 탭에 반영 (마지막 저장이 상대 변경을 덮어쓰는 유실 방지)
+window.addEventListener('storage', e => {
+  if (!e.key || !e.key.startsWith('mycal:')) return;
+  const key = e.key.slice('mycal:'.length);
+  if (key === 'fired') {
+    reloadFired();
+    return;
+  }
+  reloadKey(key);
+  renderAll();
 });
 
 renderAll();

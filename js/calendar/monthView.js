@@ -17,7 +17,8 @@ import {
 const LANE_H = 24;  // 이벤트 바 한 줄 높이(px)
 const TOP_H = 30;   // 날짜 숫자 영역 높이(px)
 
-let dragOcc = null; // 드래그 중인 발생
+let dragOcc = null;      // 드래그 중인 발생
+let dragGrabDate = null; // 멀티데이 바에서 실제로 잡은 칸의 날짜 (델타 계산 기준)
 
 export function renderMonthView(container) {
   container.textContent = '';
@@ -63,8 +64,9 @@ export function renderMonthView(container) {
       const top = el('div', 'day-top');
       const num = el('span', 'day-num ' + (isHol ? 'wd-hol' : wdClass(d.getDay())), String(d.getDate()));
       top.append(num, el('span', 'day-lunar', lunarShort(d)));
+      // 휴일 이름은 day-top 안에 표시 (아래 행에 두면 이벤트 바에 가려짐)
+      if (isHol && holName) top.append(el('span', 'day-holname', holName));
       cell.append(top);
-      if (isHol && holName) cell.append(el('div', 'day-holname', holName));
 
       cell.addEventListener('click', () => openDayPanel(d));
       cell.addEventListener('dblclick', () => openEventEditor({
@@ -135,7 +137,7 @@ function renderWeekEvents(layer, ws, occs, capacity) {
       for (let c = seg.sCol; c <= seg.eCol; c++) hiddenPerCol[c]++;
       continue;
     }
-    layer.append(makeBar(seg));
+    layer.append(makeBar(seg, ws));
   }
 
   hiddenPerCol.forEach((n, c) => {
@@ -154,7 +156,7 @@ function renderWeekEvents(layer, ws, occs, capacity) {
   });
 }
 
-function makeBar(seg) {
+function makeBar(seg, ws) {
   const o = seg.o;
   const ev = o.ev;
   const key = eventColorKey(ev);
@@ -183,11 +185,21 @@ function makeBar(seg) {
   bar.addEventListener('dblclick', e => e.stopPropagation());
   bar.addEventListener('dragstart', e => {
     dragOcc = o;
+    // 멀티데이 바의 어느 칸을 잡았는지 기록 → 드롭 시 '잡은 칸 → 드롭 칸' 델타로 이동
+    const row = bar.closest('.week-row');
+    if (row && ws) {
+      const rect = row.getBoundingClientRect();
+      const col = Math.max(0, Math.min(6, Math.floor((e.clientX - rect.left) / (rect.width / 7))));
+      dragGrabDate = addDays(ws, col);
+    } else {
+      dragGrabDate = startOfDay(o.occStart);
+    }
     e.dataTransfer.effectAllowed = 'move';
     bar.classList.add('dragging');
   });
   bar.addEventListener('dragend', () => {
     dragOcc = null;
+    dragGrabDate = null;
     document.querySelectorAll('.drop-hover').forEach(x => x.classList.remove('drop-hover'));
     bar.classList.remove('dragging');
   });
@@ -197,11 +209,10 @@ function makeBar(seg) {
 function onDropToDay(d) {
   if (!dragOcc) return;
   const o = dragOcc;
+  const grab = dragGrabDate || startOfDay(o.occStart);
   dragOcc = null;
-  const os = o.occStart;
-  if (diffDays(startOfDay(os), startOfDay(d)) === 0) return; // 같은 날짜면 무시
-  const newStart = o.ev.allDay
-    ? startOfDay(d)
-    : new Date(d.getFullYear(), d.getMonth(), d.getDate(), os.getHours(), os.getMinutes());
-  applyMove(o, newStart);
+  dragGrabDate = null;
+  const deltaDays = diffDays(grab, startOfDay(d));
+  if (deltaDays === 0) return; // 잡은 칸에 그대로 놓으면 무시
+  applyMove(o, addDays(o.occStart, deltaDays));
 }

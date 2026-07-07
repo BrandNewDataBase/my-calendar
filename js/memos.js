@@ -43,6 +43,7 @@ export function renderMemoGrid() {
     return;
   }
   const dateFmt = new Intl.DateTimeFormat(locale(), { month: 'short', day: 'numeric' });
+  const safeDate = ts => new Date(Number.isFinite(+ts) ? +ts : Date.now());
   for (const m of memos) {
     const card = el('button', 'memo-card');
     card.type = 'button';
@@ -50,7 +51,7 @@ export function renderMemoGrid() {
     if (m.pinned) card.append(el('span', 'memo-pin-badge', '📌'));
     card.append(el('div', 'memo-card-title', m.title || t('memo.untitled')));
     card.append(el('div', 'memo-card-body', (m.body || '').slice(0, 180)));
-    card.append(el('div', 'memo-card-date', dateFmt.format(new Date(m.updatedAt))));
+    card.append(el('div', 'memo-card-date', dateFmt.format(safeDate(m.updatedAt))));
     card.addEventListener('click', () => openMemoEditor(m.id));
     grid.append(card);
   }

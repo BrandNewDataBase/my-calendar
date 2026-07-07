@@ -14,8 +14,11 @@ function ddayEntries() {
     if (!ev.showDday) continue;
     const occ = nextOccurrence(ev, today);
     if (!occ) continue;
-    const dd = diffDays(today, startOfDay(occ.occStart));
-    if (dd < 0) continue;
+    let dd = diffDays(today, startOfDay(occ.occStart));
+    if (dd < 0) {
+      if (occ.occEnd <= today) continue; // 이미 끝난 발생
+      dd = 0; // 진행 중인 멀티데이 이벤트는 D-Day로 표시
+    }
     out.push({ ev, occ, dd });
   }
   out.sort((a, b) => a.dd - b.dd);

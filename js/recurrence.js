@@ -5,31 +5,34 @@
 // exdates: 제외된 발생일의 'YYYY-MM-DD' 배열 (발생 시작일 기준)
 import {
   evStart, evEnd, addDays, startOfDay, startOfWeek,
-  toDateStr, parseLocal, daysInMonth,
+  toDateStr, parseLocal, daysInMonth, diffDays,
 } from './dateutil.js';
 
 const MAX_ITER = 20000;
 
-function makeOcc(ev, occStart, dur, recurring) {
-  return {
-    ev,
-    occStart,
-    occEnd: new Date(occStart.getTime() + dur),
-    occId: recurring ? `${ev.id}::${toDateStr(occStart)}` : ev.id,
-    recurring,
-  };
-}
-
 // ev를 [rangeStart, rangeEnd) 와 겹치는 발생들로 전개 (시작 시각 오름차순)
 export function expandInRange(ev, rangeStart, rangeEnd) {
   const s = evStart(ev);
-  const dur = Math.max(0, evEnd(ev) - s);
+  const e = evEnd(ev);
+  if (isNaN(s) || isNaN(e)) return []; // 손상된 날짜 문자열 방어
+  const isAllDay = !!ev.allDay;
+  // 종일 이벤트는 달력 일수로 길이를 계산 (DST 지역에서 ms 합산 시 하루 왜곡 방지)
+  const dayCount = isAllDay ? Math.max(1, diffDays(s, e)) : 0;
+  const dur = Math.max(0, e - s);
+  const occEndOf = d => (isAllDay ? addDays(d, dayCount) : new Date(d.getTime() + dur));
+  const makeOcc = (occStart, recurring) => ({
+    ev,
+    occStart,
+    occEnd: occEndOf(occStart),
+    occId: recurring ? `${ev.id}::${toDateStr(occStart)}` : ev.id,
+    recurring,
+  });
   const out = [];
   const exdates = new Set(ev.exdates || []);
-  const overlaps = d => d.getTime() + dur > rangeStart.getTime() && d < rangeEnd;
+  const overlaps = d => occEndOf(d) > rangeStart && d < rangeEnd;
 
   if (!ev.recurrence) {
-    if (overlaps(s)) out.push(makeOcc(ev, s, dur, false));
+    if (overlaps(s)) out.push(makeOcc(s, false));
     return out;
   }
 
@@ -51,7 +54,7 @@ export function expandInRange(ev, rangeStart, rangeEnd) {
     if (untilCutoff && d >= untilCutoff) return false;
     count++;
     if (count > maxCount) return false;
-    if (!exdates.has(toDateStr(d)) && overlaps(d)) out.push(makeOcc(ev, d, dur, true));
+    if (!exdates.has(toDateStr(d)) && overlaps(d)) out.push(makeOcc(d, true));
     return d < rangeEnd;
   };
 

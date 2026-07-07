@@ -17,10 +17,12 @@ export function openModal(builder, { className = '', onClose = null } = {}) {
     onClose?.();
   };
   const onKey = e => {
-    if (e.key === 'Escape') {
-      e.stopPropagation();
-      close();
-    }
+    if (e.key !== 'Escape') return;
+    // 모달이 겹쳐 있으면 최상단 모달만 닫는다 (부모 에디터까지 닫혀 편집 내용이 날아가는 것 방지)
+    const stack = root.querySelectorAll(':scope > .modal-backdrop');
+    if (stack[stack.length - 1] !== backdrop) return;
+    e.stopPropagation();
+    close();
   };
 
   backdrop.addEventListener('mousedown', e => {

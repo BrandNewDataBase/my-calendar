@@ -22,6 +22,8 @@ let gridDays = [];
 let colsEl = null;
 let colEls = [];
 let scrollEl = null;
+let savedScroll = null;   // 재렌더 시 스크롤 위치 보존
+let savedScrollKey = '';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const minToDate = (day, m) =>
@@ -147,7 +149,12 @@ export function renderTimeGrid(container, days) {
       const startMin = Math.max(0, (o.occStart - dayStart) / MIN);
       const endMin = Math.min(1440, (o.occEnd - dayStart) / MIN);
       if (endMin - startMin <= 0) continue;
-      items.push({ o, startMin, endMin: Math.max(endMin, startMin + SNAP) });
+      items.push({
+        o, startMin,
+        endMin: Math.max(endMin, startMin + SNAP),
+        // 렌더 최소 높이(20px ≈ 25분)만큼은 배치 계산에서도 차지해 연속된 짧은 이벤트 겹침 방지
+        layEnd: Math.max(endMin, startMin + 25),
+      });
     }
     layoutColumns(items);
     for (const it of items) {
@@ -178,12 +185,19 @@ export function renderTimeGrid(container, days) {
   colsEl.addEventListener('pointerdown', onPointerDown);
   container.append(root);
   updateNowLine();
-  scrollEl.scrollTop = 7.5 * HOUR_H;
+  // 같은 날짜 범위의 재렌더라면 이전 스크롤 위치 유지, 아니면 07:30 기본값
+  const scrollKey = days.map(d => toDateStr(d)).join(',');
+  scrollEl.scrollTop = (savedScrollKey === scrollKey && savedScroll != null)
+    ? savedScroll
+    : 7.5 * HOUR_H;
+  savedScrollKey = scrollKey;
+  savedScroll = scrollEl.scrollTop;
+  scrollEl.addEventListener('scroll', () => { savedScroll = scrollEl.scrollTop; });
 }
 
-// 겹치는 이벤트를 클러스터로 묶어 열 배치
+// 겹치는 이벤트를 클러스터로 묶어 열 배치 (layEnd = 렌더 높이를 반영한 끝)
 function layoutColumns(items) {
-  items.sort((a, b) => a.startMin - b.startMin || b.endMin - a.endMin);
+  items.sort((a, b) => a.startMin - b.startMin || b.layEnd - a.layEnd);
   const clusters = [];
   let cur = null;
   let curMaxEnd = -1;
@@ -194,14 +208,14 @@ function layoutColumns(items) {
       curMaxEnd = -1;
     }
     cur.push(it);
-    curMaxEnd = Math.max(curMaxEnd, it.endMin);
+    curMaxEnd = Math.max(curMaxEnd, it.layEnd);
   }
   for (const cl of clusters) {
     const colEnds = [];
     for (const it of cl) {
       let c = 0;
       while (c < colEnds.length && colEnds[c] > it.startMin) c++;
-      colEnds[c] = it.endMin;
+      colEnds[c] = it.layEnd;
       it.col = c;
     }
     cl.forEach(it => { it.cols = colEnds.length; });
@@ -228,7 +242,7 @@ function onPointerDown(e) {
   const startX = e.clientX, startY = e.clientY;
   let moved = false;
   let mode, occ = null, baseCol, anchorMin = 0, grabOffset = 0, durMin = 60;
-  let curCol = 0, curStartMin = 0, curEndMin = 0;
+  let curCol = 0, curStartMin = 0, curEndMin = 0, lowerBound = 0;
   let ghost = null;
 
   if (blockEl) {
@@ -241,6 +255,8 @@ function onPointerDown(e) {
     grabOffset = posMin(e.clientY) - startRel;
     curStartMin = startRel;
     curEndMin = (occ.occEnd - startOfDay(gridDays[baseCol])) / MIN;
+    // 자정 넘김 이벤트의 뒷조각을 잡았을 때 원래 오프셋(음수)까지 허용해 60분 점프 방지
+    lowerBound = Math.min(0, Math.floor(startRel / SNAP) * SNAP);
   } else {
     mode = 'create';
     baseCol = colIdx(e.clientX);
@@ -275,9 +291,10 @@ function onPointerDown(e) {
       setGhost(ensureGhost(baseCol), a, b - a);
     } else if (mode === 'move') {
       curCol = colIdx(mv.clientX);
-      curStartMin = clamp(snap(posMin(mv.clientY) - grabOffset), 0, 1440 - SNAP);
+      curStartMin = clamp(snap(posMin(mv.clientY) - grabOffset), lowerBound, 1440 - SNAP);
       blockEl.classList.add('drag-src');
-      setGhost(ensureGhost(curCol), curStartMin, Math.min(durMin, 1440 - curStartMin));
+      setGhost(ensureGhost(curCol), Math.max(0, curStartMin),
+        Math.min(durMin, 1440 - Math.max(0, curStartMin)));
     } else { // resize
       const startRel = Math.max(0, (occ.occStart - startOfDay(gridDays[baseCol])) / MIN);
       curEndMin = clamp(snap(posMin(mv.clientY)), startRel + SNAP, 1440);
@@ -286,12 +303,20 @@ function onPointerDown(e) {
     }
   };
 
-  const onUp = async up => {
+  const cleanup = () => {
     window.removeEventListener('pointermove', onMove);
     window.removeEventListener('pointerup', onUp);
+    window.removeEventListener('pointercancel', onCancel);
     document.body.classList.remove('tg-dragging');
     ghost?.remove();
     blockEl?.classList.remove('drag-src');
+  };
+
+  // 터치 스크롤 등으로 브라우저가 제스처를 가져가면 아무 변경 없이 정리만
+  const onCancel = () => cleanup();
+
+  const onUp = async up => {
+    cleanup();
 
     if (!moved) {
       if (mode === 'move' || mode === 'resize') {
@@ -331,6 +356,7 @@ function onPointerDown(e) {
 
   window.addEventListener('pointermove', onMove);
   window.addEventListener('pointerup', onUp);
+  window.addEventListener('pointercancel', onCancel);
 }
 
 // 현재 시각 선 갱신 (1분마다 앱에서 호출)

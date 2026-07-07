@@ -11,9 +11,9 @@ self.addEventListener('notificationclick', event => {
   event.notification.close();
   event.waitUntil((async () => {
     const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-    for (const client of all) {
-      if ('focus' in client) return client.focus();
-    }
+    // github.io는 계정의 모든 프로젝트가 같은 origin을 공유하므로 이 앱 범위의 탭만 포커스
+    const inScope = all.filter(c => c.url.startsWith(self.registration.scope));
+    if (inScope.length) return inScope[0].focus();
     return self.clients.openWindow('./');
   })());
 });

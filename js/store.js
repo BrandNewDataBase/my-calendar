@@ -16,8 +16,12 @@ function read(key, fallback) {
 function write(key, value) {
   try {
     localStorage.setItem(NS + key, JSON.stringify(value));
+    return true;
   } catch (e) {
+    // 저장 공간 초과 등 — 조용히 삼키면 '저장됨' 토스트가 거짓말이 되므로 알림
     console.warn('localStorage 저장 실패:', e);
+    bus.emit('storage-error', e);
+    return false;
   }
 }
 
@@ -155,10 +159,25 @@ export function reloadFired() {
   state.fired = read('fired', {});
 }
 
+// storage 이벤트로 다른 탭의 변경을 이 탭 상태에 반영 (마지막 저장이 상대 탭 변경을 덮어쓰는 유실 방지)
+export function reloadKey(key) {
+  if (key === 'settings') {
+    state.settings = Object.assign(
+      { lang: null, theme: null, weekStart: 0, notifDismissed: false, schemaVersion: SCHEMA_VERSION },
+      read('settings', {})
+    );
+  } else if (key === 'holidays' || key === 'fired') {
+    state[key] = read(key, {});
+  } else if (key === 'events' || key === 'categories' || key === 'memos') {
+    state[key] = read(key, []);
+  }
+}
+
 // ---- 실행취소 스냅샷 ----
 export function snapshot() {
   return JSON.parse(JSON.stringify({
     events: state.events, memos: state.memos, holidays: state.holidays,
+    categories: state.categories,
   }));
 }
 
@@ -166,6 +185,8 @@ export function restore(snap) {
   state.events = JSON.parse(JSON.stringify(snap.events));
   state.memos = JSON.parse(JSON.stringify(snap.memos));
   state.holidays = JSON.parse(JSON.stringify(snap.holidays));
+  if (snap.categories) state.categories = JSON.parse(JSON.stringify(snap.categories));
+  persist('categories');
   persist('events');
   persist('memos');
   persist('holidays');

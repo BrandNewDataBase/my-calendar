@@ -374,7 +374,7 @@ button:focus-visible {
 /* ---------- 레이아웃 ---------- */
 .app-main { flex: 1; min-height: 0; }
 .tab-panel { height: 100%; }
-#calendar-tab { display: flex; }
+#calendar-tab { display: flex; position: relative; }
 #memo-tab { display: flex; flex-direction: column; }
 body[data-tab="calendar"] #memo-tab { display: none; }
 body[data-tab="memo"] #calendar-tab { display: none; }
@@ -592,14 +592,18 @@ body[data-tab="memo"] .cal-only { display: none !important; }
 .day-num.wd-hol { color: var(--holiday); font-weight: 800; }
 .day-cell.today .day-num { background: var(--accent); color: #fff !important; }
 .day-lunar { font-size: 9.5px; color: var(--text-muted); }
+/* 휴일 이름은 day-top 안에 인라인 표시 (이벤트 바 레이어에 가려지지 않도록) */
 .day-holname {
-  font-size: 10px;
+  font-size: 9.5px;
   color: var(--holiday);
   font-weight: 600;
-  padding: 0 7px;
+  margin-left: auto;
+  padding-right: 2px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
+  flex: 0 1 auto;
 }
 .day-cell.drop-hover {
   background: var(--accent-soft);
@@ -1070,6 +1074,7 @@ body.day-panel-open .day-panel {
   font-size: 13.5px;
 }
 .check-row input { accent-color: var(--accent); cursor: pointer; width: 15px; height: 15px; }
+.check-row.disabled { opacity: 0.45; pointer-events: none; }
 .inline-checks { display: flex; gap: 18px; flex-wrap: wrap; }
 .inline-checks .check-row { margin: 0; }
 .num-input { width: 58px; }
@@ -1201,10 +1206,11 @@ body.day-panel-open .day-panel {
   .sidebar { display: none; }
   .app-header { gap: 10px; padding: 0 12px; }
   .cal-title { font-size: 14px; }
+  /* 헤더 높이와 무관하게 콘텐츠 영역(#calendar-tab) 안에 고정 — 두 줄 헤더를 가리지 않음 */
   .day-panel {
-    position: fixed;
+    position: absolute;
     right: 0;
-    top: 58px;
+    top: 0;
     bottom: 0;
     z-index: 90;
     box-shadow: var(--shadow-lg);

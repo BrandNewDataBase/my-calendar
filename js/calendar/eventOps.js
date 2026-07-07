@@ -4,8 +4,15 @@ import { choiceDialog } from '../modal.js';
 import { t } from '../i18n.js';
 import { withUndo } from '../undo.js';
 import {
-  toDateStr, toDateTimeStr, addDays, diffDays, startOfDay, evStart, DAY,
+  toDateStr, toDateTimeStr, addDays, diffDays, startOfDay, evStart, parseLocal, DAY,
 } from '../dateutil.js';
+
+// 시리즈 전체를 deltaDays만큼 이동할 때 예외일도 함께 이동
+// (안 하면 '이 일정만' 삭제/분리했던 발생이 이동 후 되살아남)
+export function shiftExdates(exdates, deltaDays) {
+  if (!deltaDays) return [...(exdates || [])];
+  return (exdates || []).map(ds => toDateStr(addDays(parseLocal(ds), deltaDays)));
+}
 
 // newStart와 durMs(exclusive)로 저장용 start/end 문자열 생성
 export function formatRange(allDay, newStart, durMs) {
@@ -72,7 +79,11 @@ export async function applyMove(o, newStart, durMs = o.occEnd - o.occStart) {
     }
   }
   withUndo(t('toast.moved'), () =>
-    updateEvent(ev.id, { ...formatRange(ev.allDay, ns, durMs), recurrence }));
+    updateEvent(ev.id, {
+      ...formatRange(ev.allDay, ns, durMs),
+      recurrence,
+      exdates: shiftExdates(ev.exdates, deltaDays),
+    }));
   return true;
 }
 
