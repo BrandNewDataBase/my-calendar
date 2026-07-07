@@ -1,0 +1,7 @@
+{
+  "name": "my-calendar",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "따뜻한 팔레트의 나만의 캘린더 — 순수 정적 웹앱"
+}
