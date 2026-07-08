@@ -5,7 +5,7 @@ import { ui, bus } from './bus.js';
 import { t, getLang, setLang, LANGS, LANG_NAMES } from './i18n.js';
 import { fmtMonthTitle, fmtMediumDate, fmtFullDate } from './i18n.js';
 import { initTheme, toggleTheme, currentTheme } from './theme.js';
-import { renderMonthView } from './calendar/monthView.js';
+import { renderMonthView, scrollMonthByRows, recenterMonth } from './calendar/monthView.js';
 import { renderTimeGrid, updateNowLine } from './calendar/timeGrid.js';
 import { renderDayPanel, closeDayPanel } from './calendar/dayPanel.js';
 import { renderMiniCal } from './calendar/miniCal.js';
@@ -164,6 +164,7 @@ function bindStaticHandlers() {
   });
   $('#btn-today').addEventListener('click', () => {
     ui.cursor = new Date();
+    recenterMonth(); // 같은 달을 보고 있어도 오늘이 보이도록 재배치
     bus.emit('refresh');
   });
   $('#btn-prev').addEventListener('click', () => navigate(-1));
@@ -207,6 +208,7 @@ function bindStaticHandlers() {
       openEventEditor({ defaults: newEventDefaults() });
     } else if (k === 't' || k === 'T') {
       ui.cursor = new Date();
+      recenterMonth();
       bus.emit('refresh');
     } else if ((k === 'm' || k === 'M') && ui.tab === 'calendar') {
       ui.view = 'month';
@@ -221,6 +223,9 @@ function bindStaticHandlers() {
       navigate(-1);
     } else if (k === 'ArrowRight' && ui.tab === 'calendar') {
       navigate(1);
+    } else if ((k === 'ArrowUp' || k === 'ArrowDown') && ui.tab === 'calendar' && ui.view === 'month') {
+      e.preventDefault();
+      scrollMonthByRows(k === 'ArrowUp' ? -1 : 1); // 위 = 과거, 아래 = 미래
     } else if (k === '/') {
       // 현재 탭에서 실제로 보이는 검색창에 포커스 (메모 탭에서는 메모 검색)
       const target = ui.tab === 'memo'
@@ -255,6 +260,11 @@ initSearch();
 
 bus.on('refresh', renderAll);
 bus.on('data-changed', renderAll);
+// 월 뷰 스크롤로 달이 바뀌면 제목과 미니 캘린더만 가볍게 갱신
+bus.on('month-scrolled', () => {
+  renderTitle();
+  renderMiniCal($('#mini-cal'));
+});
 bus.on('theme-changed', () => {
   const btn = $('#theme-toggle');
   if (btn) btn.textContent = currentTheme() === 'dark' ? '☀️' : '🌙';

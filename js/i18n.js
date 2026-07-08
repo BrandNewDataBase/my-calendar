@@ -522,6 +522,7 @@ export const locale = () => LOCALES[getLang()];
 const f = opts => new Intl.DateTimeFormat(locale(), opts);
 
 export const fmtMonthTitle = d => f({ year: 'numeric', month: 'long' }).format(d);
+export const fmtMonthShort = d => f({ month: 'short' }).format(d);
 export const fmtFullDate = d => f({ year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' }).format(d);
 export const fmtMediumDate = d => f({ year: 'numeric', month: 'short', day: 'numeric' }).format(d);
 export const fmtMD = d => f({ month: 'short', day: 'numeric' }).format(d);
